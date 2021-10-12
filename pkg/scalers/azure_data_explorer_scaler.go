@@ -40,8 +40,8 @@ import (
 )
 
 const (
-	//miEndpoint       = "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fapi.DataExplorer.io%2F" //todo - check token
-	deQueryEndpoint = "https://api.DataExplorer.io/v1/workspaces/%s/query"
+	deMiEndpoint    = "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2F%s.%s.kusto.windows.net%2F"
+	deQueryEndpoint = "https://%s.%s.kusto.windows.net"
 )
 
 type azureDataExplorerScaler struct {
@@ -114,12 +114,19 @@ func parseAzureDataExplorerMetadata(config *ScalerConfig) (*azureDataExplorerMet
 		return nil, fmt.Errorf("error parsing metadata. Details: Data Explorer Scaler doesn't support pod identity %s", config.PodIdentity)
 	}
 
-	//// Getting workspaceId //todo - change to cluster and region
-	//workspaceID, err := getParameterFromConfig(config, "workspaceId", true)
-	//if err != nil {
-	//	return nil, err
-	//}
-	//meta.workspaceID = workspaceID
+	// Getting clusterName
+	clusterName, err := getParameterFromConfig(config, "clusterName", true)
+	if err != nil {
+		return nil, err
+	}
+	meta.clusterName = clusterName
+
+	// Getting region - todo what is the region format
+	region, err := getParameterFromConfig(config, "region", true)
+	if err != nil {
+		return nil, err
+	}
+	meta.region = region
 
 	// Getting query, observe that we dont check AuthParams for query
 	query, err := getParameterFromConfig(config, "query", false)
@@ -141,9 +148,9 @@ func parseAzureDataExplorerMetadata(config *ScalerConfig) (*azureDataExplorerMet
 
 	// Resolve metricName
 	if val, ok := config.TriggerMetadata["metricName"]; ok {
-		meta.metricName = kedautil.NormalizeString(fmt.Sprintf("%s-%s", "azure-data-explorer", val))
+		meta.metricName = kedautil.NormalizeString(fmt.Sprintf("%s-%s-%s", "azure-data-explorer", val, val)) //todo almog - what is val
 	} else {
-		//meta.metricName = kedautil.NormalizeString(fmt.Sprintf("%s-%s", "azure-data-explorer", meta.workspaceID)) //todo - change to cluster and region
+		meta.metricName = kedautil.NormalizeString(fmt.Sprintf("%s-%s-%s", "azure-data-explorer", meta.clusterName, meta.region))
 	}
 
 	return &meta, nil
@@ -418,7 +425,7 @@ func (s *azureDataExplorerScaler) executeDataExplorerREST(query string, tokenInf
 		return nil, 0, fmt.Errorf("can't construct JSON for request to Data Explorer API. Inner Error: %v", err)
 	}
 
-	request, err := http.NewRequest(http.MethodPost, fmt.Sprintf(deQueryEndpoint, s.metadata.clusterName /* todo - add region */), bytes.NewBuffer(jsonBytes)) // URL-encoded payload
+	request, err := http.NewRequest(http.MethodPost, fmt.Sprintf(deQueryEndpoint, s.metadata.clusterName, s.metadata.region), bytes.NewBuffer(jsonBytes)) // URL-encoded payload
 	if err != nil {
 		return nil, 0, fmt.Errorf("can't construct HTTP request to Data Explorer API. Inner Error: %v", err)
 	}
@@ -451,7 +458,7 @@ func (s *azureDataExplorerScaler) executeAADApicall() ([]byte, int, error) {
 }
 
 func (s *azureDataExplorerScaler) executeIMDSApicall() ([]byte, int, error) {
-	request, err := http.NewRequest(http.MethodGet, miEndpoint, nil)
+	request, err := http.NewRequest(http.MethodGet, fmt.Sprintf(deMiEndpoint, s.metadata.clusterName, s.metadata.region), nil)
 	if err != nil {
 		return nil, 0, fmt.Errorf("can't construct HTTP request to Azure Instance Metadata service. Inner Error: %v", err)
 	}
